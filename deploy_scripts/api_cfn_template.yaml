@@ -84,11 +84,11 @@ Globals:
           Fn::ImportValue:
             !Sub "${DatabaseStackName}-DatabaseSecretArn"
         TWILIO_AUTH:
-          'e17690a57efb974edcf73102cc4b219d'
+          
         TWILIO_ACCOUNT_SID:
-          'AC5949d731c9687f113d652f0a70258c66'
+          '
         FCM_KEY:
-          'AAAAxBIq9QE:APA91bFbA-DZ0WrHw2VjA1rhHzLCeTTXJHPkL6ZQv1TKCIi_3BTiCaeNq7P7GIXlT1kjYTZWaAUUE-52u-j4dNs0re8CH8Am8FPdlmV1tUxGFzvyQjM9oKTE5IYLfKnAu6RHFZZw8FRU'
+          
   Api:
     Name: !Sub "${EnvType}-${AppName}-api"
     EndpointConfiguration: REGIONAL
