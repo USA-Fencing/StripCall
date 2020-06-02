@@ -1,0 +1,13 @@
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id MEDIUMINT NOT NULL,
+    event_name VARCHAR(30) NOT NULL,
+    event_type VARCHAR(10) NOT NULL,
+    start_date_utc DATETIME NOT NULL,
+    end_date_utc DATETIME NOT NULL,
+    state MEDIUMINT,
+    arm_tn varchar(10)
+    PRIMARY KEY (event_id),
+    INDEX start_date_idx (start_date_utc),
+    INDEX end_date_idx (end_date_utc)
+)

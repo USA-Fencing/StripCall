@@ -1,0 +1,25 @@
+
+CREATE TABLE IF NOT EXISTS receipts (
+    receipt_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    event_id MEDIUMINT NOT NULL,
+    problem_id MEDIUMINT NOT NULL,
+    message_id MEDIUMINT NOT NULL,
+    recipient_id MEDIUMINT NOT NULL,
+    receipt_time_utc DATETIME,
+    PRIMARY KEY (receipt_id),
+    INDEX event_idx(event_id),
+    INDEX problem_idx(problem_id),
+    INDEX message_idx(message_id),
+    FOREIGN KEY (event_id)
+      REFERENCES events(event_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (problem_id)
+      REFERENCES problems(problem_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (message_id)
+      REFERENCES messages(message_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (recipient_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE
+)

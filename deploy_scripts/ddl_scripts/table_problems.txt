@@ -1,0 +1,29 @@
+
+CREATE TABLE IF NOT EXISTS problems (
+    problem_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    event_id MEDIUMINT NOT NULL,
+    crew_type VARCHAR(4) NOT NULL,
+    strip VARCHAR(5) NOT NULL,
+    problem_type VARCHAR(5) NOT NULL,
+    reporter_id MEDIUMINT NOT NULL,
+    reported_time_utc DATETIME NOT NULL,
+    updater_id MEDIUMINT,
+    update_time_utc DATETIME,
+    resolver_id MEDIUMINT,
+    resolver_time_utc DATETIME,
+    resolution_code MEDIUMINT,
+    PRIMARY KEY (problem_id),
+    INDEX event_idx (event_id),
+    FOREIGN KEY (event_id)
+      REFERENCES events(event_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (reporter_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (updater_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (resolver_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE
+)

@@ -1,0 +1,17 @@
+
+CREATE TABLE IF NOT EXISTS crews (
+    crew_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    event_id MEDIUMINT NOT NULL,
+    crew_type VARCHAR(4) NOT NULL,
+    user_id MEDIUMINT NOT NULL,
+    sms BOOLEAN,
+    PRIMARY KEY (crew_id),
+    INDEX event_idx (event_id),
+
+    FOREIGN KEY (event_id)
+      REFERENCES events(event_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (user_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE
+)

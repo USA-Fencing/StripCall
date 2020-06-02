@@ -1,0 +1,649 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Provisions AWS Serverless API resources for stripcall on AWS
+Transform: 'AWS::Serverless-2016-10-31'
+Parameters:
+  AppName:
+    Description: "Application Name"
+    Type: String
+    Default: stripcall
+  EnvType:
+    Description: "Environment type (eg, dev, qa, prod)"
+    Type: String
+    Default: dev
+  DatabaseStackName:
+    Description: "Name of the RDS CloudFormation stack to import parameters from"
+    Type: String
+    Default: stripcall_db
+  UsersTableName:
+    Description: "Users Table name"
+    Type: String
+    Default: users
+  EventsTableName:
+    Description: "Event Table name"
+    Type: String
+    Default: events
+  CrewsTableName:
+    Description: "Crews Table name"
+    Type: String
+    Default: crews
+  ProblemsTableName:
+    Description: "Problems Table name"
+    Type: String
+    Default: problems
+  MessagesTableName:
+    Description: "Message Table name"
+    Type: String
+    Default: messages
+  ReceiptsTableName:
+    Description: "Receipts Table name"
+    Type: String
+    Default: receipts
+  TopicsTableName:
+    Description: "Topics Table name"
+    Type: String
+    Default: topics
+  ApiStageName:
+    Description: "API Stage Name"
+    Type: String
+    Default: dev
+  LambdaLogLevel:
+    Description: "Log verbosity level for Lambda functions"
+    Type: String
+    Default: info
+  DynamoEmailTable:
+    Type: String
+    Description: "DynamoDB table name for allowed users"
+    Default: stripcall-email
+Globals:
+  Function:
+    Runtime: python3.7
+    Timeout: 120
+    MemorySize: 256
+    AutoPublishAlias: live
+    Environment:
+      Variables:
+        LOG_LEVEL: !Ref LambdaLogLevel
+        USERS_TABLE_NAME: !Ref UsersTableName
+        EVENTS_TABLE_NAME: !Ref EventsTableName
+        CREWS_TABLE_NAME: !Ref CrewsTableName
+        PROBLEMS_TABLE_NAME: !Ref ProblemsTableName
+        MESSAGES_TABLE_NAME: !Ref MessagesTableName
+        RECEIPTS_TABLE_NAME: !Ref ReceiptsTableName
+        TOPICS_TABLE_NAME: !Ref TopicsTableName
+        EMAIL_TABLE_NAME: !Ref DynamoEmailTable
+        DB_NAME:
+          Fn::ImportValue:
+            !Sub "${DatabaseStackName}-DatabaseName"
+        DB_CLUSTER_NAME:
+          Fn::ImportValue:
+            !Sub "${DatabaseStackName}-DatabaseClusterID"
+        DB_CLUSTER_ARN:
+          Fn::ImportValue:
+            !Sub "${DatabaseStackName}-DatabaseClusterArn"
+        DB_CRED_SECRETS_STORE_ARN:
+          Fn::ImportValue:
+            !Sub "${DatabaseStackName}-DatabaseSecretArn"
+        TWILIO_AUTH:
+          'e17690a57efb974edcf73102cc4b219d'
+        TWILIO_ACCOUNT_SID:
+          'AC5949d731c9687f113d652f0a70258c66'
+        FCM_KEY:
+          'AAAAxBIq9QE:APA91bFbA-DZ0WrHw2VjA1rhHzLCeTTXJHPkL6ZQv1TKCIi_3BTiCaeNq7P7GIXlT1kjYTZWaAUUE-52u-j4dNs0re8CH8Am8FPdlmV1tUxGFzvyQjM9oKTE5IYLfKnAu6RHFZZw8FRU'
+  Api:
+    Name: !Sub "${EnvType}-${AppName}-api"
+    EndpointConfiguration: REGIONAL
+Resources:
+  StripcallAPI:
+    Type: 'AWS::Serverless::Api'
+    Properties:
+        StageName: !Sub "${ApiStageName}"
+        TracingEnabled: True
+        Auth:
+            DefaultAuthorizer: stripcall-authorizer # OPTIONAL
+            Authorizers:
+              stripcall-authorizer:
+                UserPoolArn: arn:aws:cognito-idp:us-east-1:496405866230:userpool/us-east-1_7bhuRk3XV # Can also accept an array
+                Header: Authorization # OPTIONAL; Default: 'Authorization'
+
+  CreateProblemLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Create new problem for crew in event
+      FunctionName: !Sub "${EnvType}-${AppName}-create-problem-lambda"
+      CodeUri: ../lambdas/
+      Handler: create_problem.handler
+      Tracing: Active
+      Events:
+        CreateProblemPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/create_problem/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+  MessageLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Send message for problem to crew in event
+      FunctionName: !Sub "${EnvType}-${AppName}-message-lambda"
+      CodeUri: ../lambdas/
+      Handler: message.handler
+      Tracing: Active
+      Events:
+        MessagePostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/message/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - SNS:Publish
+              Resource: "*"
+  ResolveProblemLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Resolve problem
+      FunctionName: !Sub "${EnvType}-${AppName}-resolve-problem-lambda"
+      CodeUri: ../lambdas/
+      Handler: resolve_problem.handler
+      Tracing: Active
+      Events:
+        ResolveProblemPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/resolve_problem/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+  UpdateProblemLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Update problem
+      FunctionName: !Sub "${EnvType}-${AppName}-update-problem-lambda"
+      CodeUri: ../lambdas/
+      Handler: update_problem.handler
+      Tracing: Active
+      Events:
+        UpdateProblemPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/update_problem/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+  PollLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Retrieves problems and messages for user in event
+      FunctionName: !Sub "${EnvType}-${AppName}-poll-lambda"
+      CodeUri: ../lambdas/
+      Handler: poll.handler
+      Tracing: Active
+      Events:
+        PollEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/poll/'
+            Method: get
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+  ReceiptLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Acknowldge receipt of message
+      FunctionName: !Sub "${EnvType}-${AppName}-receipt-lambda"
+      CodeUri: ../lambdas/
+      Handler: receipt.handler
+      Tracing: Active
+      Events:
+        ReceiptPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/receipt/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+
+  HelloLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: User Hello
+      FunctionName: !Sub "${EnvType}-${AppName}-hello-lambda"
+      CodeUri: ../lambdas/
+      Handler: hello.handler
+      Tracing: Active
+      Events:
+        HelloPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/hello/'
+            Method: get
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+
+  SetCrewLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Set crew for user in event
+      FunctionName: !Sub "${EnvType}-${AppName}-set_crew"
+      CodeUri: ../lambdas/
+      Handler: set_crew.handler
+      Tracing: Active
+      Events:
+        SetCrewPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/set_crew/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: stripcall-authorizer # OPTIONAL
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+
+  WakeupLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: DB Cluster Wake Up
+      FunctionName: !Sub "${EnvType}-${AppName}-wakeup-lambda"
+      CodeUri: ../lambdas/
+      Handler: wakeup.handler
+      Tracing: Active
+      Timeout: 300
+      Events:
+        StripCallWakeupEvent:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 1 * * ? *)
+            Enabled: true
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - events:EnableRule
+                - events:DisableRule
+                - events:ListRules
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: "*"
+
+
+  KeepAliveLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: DB Cluster Keep Alive
+      FunctionName: !Sub "${EnvType}-${AppName}-keepalive-lambda"
+      CodeUri: ../lambdas/
+      Handler: keepalive.handler
+      Tracing: Active
+      Timeout: 240
+      Events:
+        StripcallKeepAliveEvent:
+          Name: "StripcallKeepAliveEvent"
+          Type: Schedule
+          Properties:
+            Schedule: rate(10 minutes)
+            Enabled: false
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+  IncomingSMSLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Handle incoming SMS from Twilio
+      FunctionName: !Sub "${EnvType}-${AppName}-incoming_sms"
+      CodeUri: ../lambdas/
+      Handler: incoming_sms.handler
+      Tracing: Active
+      Events:
+        IncomingSMSPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/incoming_sms/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:*
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseClusterArn"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::ImportValue:
+                  !Sub "${DatabaseStackName}-DatabaseSecretArn"
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: "*"
+
+  LoadCsvLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: load csv files in S3 bucket to dynamodb
+      FunctionName: !Sub "${EnvType}-${AppName}-loadcsv-lambda"
+      CodeUri: ../lambdas/
+      Handler: load_csv.handler
+      Tracing: Active
+    Policies:
+      - Version: '2012-10-17' # Policy Document
+        Statement:
+          - Effect: Allow
+            Action:
+              - rds-data:*
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseClusterArn"
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseSecretArn"
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:*
+            Resource: "*"
+
+  CheckEmailLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Check potential user email against allowed list
+      FunctionName: !Sub "${EnvType}-${AppName}-check_email-lambda"
+      CodeUri: ../lambdas/
+      Handler: check_email.handler
+      Tracing: Active
+      Timeout: 300
+      Events:
+        CheckUserPostEvent:
+          Type: Api
+          Properties:
+            Path: '/stripcall/check_email/'
+            Method: post
+            RestApiId: !Ref StripcallAPI
+            Auth:
+              Authorizer: NONE
+    Policies:
+      - Version: '2012-10-17' # Policy Document
+        Statement:
+          - Effect: Allow
+            Action:
+              - rds-data:*
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseClusterArn"
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseSecretArn"
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+            Resource: "*"
+
+  CognitoNewUserLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Description: Add sub to users table from Cognito trigger
+      FunctionName: !Sub "${EnvType}-${AppName}-cog_new_user-lambda"
+      CodeUri: ../lambdas/
+      Handler: cog_new_user.handler
+      Tracing: Active
+      Timeout: 300
+      Policies:
+      - Version: '2012-10-17' # Policy Document
+        Statement:
+          - Effect: Allow
+            Action:
+              - rds-data:*
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseClusterArn"
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              Fn::ImportValue:
+                !Sub "${DatabaseStackName}-DatabaseSecretArn"
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+            Resource: "*"
+
+Outputs:
+  StackName:
+    Description: API Stack Name
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub ${AWS::StackName}-StackName
+
+  ApiEndpoint:
+    Description: API Stage Endpoint
+    Value: !Sub "https://${StripcallAPI}.execute-api.${AWS::Region}.amazonaws.com/${EnvType}"
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndPoint

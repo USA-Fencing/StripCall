@@ -1,0 +1,23 @@
+
+CREATE TABLE IF NOT EXISTS messages (
+    message_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    event_id MEDIUMINT NOT NULL,
+    crew_type VARCHAR(4) NOT NULL,
+    problem_id MEDIUMINT NOT NULL,
+    message_text VARCHAR(1024) NOT NULL,
+    sender_id MEDIUMINT NOT NULL,
+    sent_time_utc DATETIME NOT NULL,
+    finished_time_utc DATETIME,
+   INDEX message_idx (problem_id),
+   INDEX event_idx (event_id),
+   PRIMARY KEY (message_id),
+    FOREIGN KEY (event_id)
+      REFERENCES events(event_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (problem_id)
+      REFERENCES problems(problem_id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (sender_id)
+      REFERENCES users(user_id)
+      ON DELETE CASCADE
+)

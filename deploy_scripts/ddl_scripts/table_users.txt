@@ -1,0 +1,14 @@
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    user_name VARCHAR(30) NOT NULL,
+    full_name VARCHAR(50) NOT NULL,
+    allowed_roles VARCHAR(50) NOT NULL,
+    sub VARCHAR(30)
+    mobile: VARCHAR(20)
+    email: VARCHAR(50)
+    PRIMARY KEY (user_id),
+    INDEX user_name_idx(user_name)
+    INDEX sub_idx(sub)
+    INDEX mobile_idx(mobile)
+)

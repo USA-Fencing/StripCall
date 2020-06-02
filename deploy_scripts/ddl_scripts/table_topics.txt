@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS topics (
+    topic_id MEDIUMINT NOT NULL AUTO_INCREMENT,
+    arn VARCHAR(50) NOT NULL,
+    event_id MEDIUMINT,
+    crew_type VARCHAR(4),
+    tn = VARCHAR(10),
+    PRIMARY KEY (topic_id),
+    INDEX event_idx (event_id),
+    INDEX tn_idx (tn),
+    OREIGN KEY (event_id)
+      REFERENCES events(event_id)
+      ON DELETE CASCADE,
+ )
