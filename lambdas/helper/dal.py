@@ -7,11 +7,13 @@ import json
 import os
 import boto3
 import base64
+import logging
+import secret
 from urllib import request, parse
 import requests
-from .logger import get_logger
 from aws_xray_sdk.core import xray_recorder, patch_all
-logger = get_logger(__name__)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 is_lambda_environment = (os.getenv('AWS_LAMBDA_FUNCTION_NAME') is not None)
 
@@ -26,9 +28,8 @@ crews_table_name = os.getenv('CREWS_TABLE_NAME', 'crews')
 problems_table_name = os.getenv('PROBLEMS_TABLE_NAME', 'problems')
 messages_table_name = os.getenv('MESSAGES_TABLE_NAME', 'messages')
 receipts_table_name = os.getenv('RECEIPTS_TABLE_NAME', 'receipts')
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH = os.getenv("TWILIO_AUTH")
-FCM_KEY = os.getenv("FCM_KEY")
+FCM_KEY = secret.get_fcm_secret()
+TWILIO_SECRET = secret.get_twilio_secret()
 
 
 class DataAccessLayerException(Exception):
@@ -131,7 +132,7 @@ class DataAccessLayer:
             'sql': 'SELECT event_id FROM events WHERE start_date_utc>now()'
         }
         try:
-            result = self._rdsdata_client.execute_statement(**parameters)
+            self._rdsdata_client.execute_statement(**parameters)
             print('success')
             return 2, 200, 'success'
         except Exception as e:
@@ -365,7 +366,7 @@ class DataAccessLayer:
             print(f'back from request, response={response}')
             if response.status_code != 200:
                 logger.info(f'could not send notification to FCM, response was {response}')
-                return false
+                return False
             jsonResponse = json.loads(response.content)
             print(jsonResponse)
 
@@ -422,7 +423,7 @@ class DataAccessLayer:
                 if sender_increw:
                     test_id=""#return True  #both reporter and sender are in crew, nothing else to do
                 else:
-                    test_id = sender_id #repprter is in, sender is not
+                    test_id = user_id #repprter is in, sender is not
             else:
                 if sender_increw:
                     test_id = reporter_id  #sender is in  reporter is not
@@ -481,7 +482,7 @@ class DataAccessLayer:
             from_tn = records[0][0]['stringValue']
             logger.info(f'from_tn {from_tn}')
             TWILIO_SMS_URL = "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json"
-            populated_url = TWILIO_SMS_URL.format(TWILIO_ACCOUNT_SID)
+            populated_url = TWILIO_SMS_URL.format(TWILIO_SECRET['ACCOUNT_SID'])
             print(populated_url)
             for send_id in sms_crew:
                 sql_parameters = [
@@ -509,7 +510,7 @@ class DataAccessLayer:
                 req = request.Request(populated_url)
 
                 # add authentication header to request based on Account SID + Auth Token
-                authentication = "{}:{}".format(TWILIO_ACCOUNT_SID, TWILIO_AUTH)
+                authentication = "{}:{}".format(TWILIO_SECRET['ACCOUNT_SID'], TWILIO_SECRET['AUTH'])
                 base64string = base64.b64encode(authentication.encode('utf-8'))
                 print("Basic %s" % base64string.decode('ascii'))
                 req.add_header("Authorization", "Basic %s" % base64string.decode('ascii'))
@@ -599,7 +600,7 @@ class DataAccessLayer:
     def hello(self, event_id, user_id):
         DataAccessLayer._xray_start('hello')
         try:
-            DataAccessLayer._xray_add_metadata('event', crew_type)
+            DataAccessLayer._xray_add_metadata('event', event_id)
             DataAccessLayer._xray_add_metadata('user', user_id)
             sql_parameters = [
                 {'name':'event', 'value':{'longValue': event_id}},
@@ -745,7 +746,7 @@ class DataAccessLayer:
                 sql = f'UPDATE {receipts_table_name} ' \
                     f' SET receipt_time_utc = now()' \
                     f' WHERE receipt_id = :receipt'
-                receipt_response = self.execute_statement(sql, sql_parameters)
+                self.execute_statement(sql, sql_parameters)
             sql = f'SELECT message_id from {messages_table_name} ' \
                 f' WHERE event_id = :event' \
                 f' AND finished_time_utc IS NULL'
@@ -760,7 +761,7 @@ class DataAccessLayer:
                 sql = f'UPDATE {messages_table_name} ' \
                     f' SET finished_time_utc = now()' \
                     f' WHERE message_id = :message'
-                message_response = self.execute_statement(sql, sql_parameters)
+                self.execute_statement(sql, sql_parameters)
             sql = f'SELECT problem_id from {problems_table_name} ' \
                 f' WHERE event_id = :event' \
                 f' AND resolver_id IS NULL'
@@ -775,7 +776,7 @@ class DataAccessLayer:
                 sql = f'UPDATE {problems_table_name} ' \
                     f' SET resolver_id = 1001, resolver_time_utc = now(), resolution_code=77' \
                     f' WHERE problem_id = :problem'
-                problem_response = self.execute_statement(sql, sql_parameters)
+                self.execute_statement(sql, sql_parameters)
             return 1
         except DataAccessLayerException as de:
             raise de

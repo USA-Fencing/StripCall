@@ -83,12 +83,7 @@ Globals:
         DB_CRED_SECRETS_STORE_ARN:
           Fn::ImportValue:
             !Sub "${DatabaseStackName}-DatabaseSecretArn"
-        TWILIO_AUTH:
-          
-        TWILIO_ACCOUNT_SID:
-          '
-        FCM_KEY:
-          
+
   Api:
     Name: !Sub "${EnvType}-${AppName}-api"
     EndpointConfiguration: REGIONAL
